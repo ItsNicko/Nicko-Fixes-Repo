@@ -1,6 +1,8 @@
 import commands2
 import wpilib
 from wpimath.units import rotationsToRadians
+from wpimath import applyDeadband
+from wpimath.filter import SlewRateLimiter
 from phoenix6 import swerve, SignalLogger
 from wpimath.kinematics import ChassisSpeeds
 from telemetry import Telemetry
@@ -19,9 +21,20 @@ class SS_SwerveDrive(commands2.Subsystem):
     def __init__(self, joystick) -> None:
         self._joystick = joystick
         self._max_angular_rate = rotationsToRadians(0.75)
-        self._max_speed_factor = 0.2
+        self._base_speed_factor = 0.20
+        self._boost_speed_factor = 0.85
+        self._max_speed_factor = self._base_speed_factor
+        self._full_throttle_hold_seconds = 0.0
+        self._full_throttle_threshold = 0.92
+        self._full_throttle_ramp_rate = 0.35
+        self._last_periodic_timestamp = Timer.getFPGATimestamp()
+        self._left_x_limiter = SlewRateLimiter(5.0)
+        self._left_y_limiter = SlewRateLimiter(5.0)
+        self._right_x_limiter = SlewRateLimiter(8.0)
+        self._right_y_limiter = SlewRateLimiter(8.0)
+        self._last_heading = Rotation2d()
         self._max_speed = self._max_speed_factor * TunerConstants.speed_at_12_volts
-        wpilib.SmartDashboard.putNumber("Swerve/Swerve Max Speed Factor", self._max_speed)
+        wpilib.SmartDashboard.putNumber("Swerve/Swerve Max Speed Factor", self._max_speed_factor)
         self._pov_speed = 0.2
         self._latest_pose = Pose2d()
         self.drivetrain = TunerConstants.create_drivetrain() # does this need to after swerve configs?
@@ -49,6 +62,7 @@ class SS_SwerveDrive(commands2.Subsystem):
             .with_drive_request_type(swerve.SwerveModule.DriveRequestType.OPEN_LOOP_VOLTAGE) )
         self._drive_facing_direction = (
             swerve.requests.FieldCentricFacingAngle()
+            .with_deadband(self._max_speed * 0.1)
             .with_drive_request_type(swerve.SwerveModule.DriveRequestType.OPEN_LOOP_VOLTAGE) )
         self._drive_robot_centered = (
             swerve.requests.RobotCentric()
@@ -69,13 +83,29 @@ class SS_SwerveDrive(commands2.Subsystem):
                 self.y_vector_to_target = -self.y_vector_to_target
             self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2)**0.5
 
-        dashboard_max_speed = wpilib.SmartDashboard.getNumber("Swerve/Swerve Max Speed Factor", self._max_speed_factor)
-        if dashboard_max_speed != self._max_speed_factor:
-            self._max_speed_factor = max(min(dashboard_max_speed, 1.0), 0.0) # Clamp between 0 and 1
+        now = Timer.getFPGATimestamp()
+        dt = max(0.0, now - self._last_periodic_timestamp)
+        self._last_periodic_timestamp = now
+        left_x = applyDeadband(self._joystick.getLeftX(), 0.08)
+        left_y = applyDeadband(self._joystick.getLeftY(), 0.08)
+        left_mag = (left_x * left_x + left_y * left_y) ** 0.5
+        if left_mag >= self._full_throttle_threshold:
+            self._full_throttle_hold_seconds += dt
+        else:
+            self._full_throttle_hold_seconds = max(0.0, self._full_throttle_hold_seconds - (2.0 * dt))
+
+        target_speed_factor = min(
+            self._boost_speed_factor,
+            self._base_speed_factor + (self._full_throttle_hold_seconds * self._full_throttle_ramp_rate),
+        )
+        dashboard_max_speed = wpilib.SmartDashboard.getNumber("Swerve/Swerve Max Speed Factor", target_speed_factor)
+        self._max_speed_factor = max(min(dashboard_max_speed, 1.0), 0.0) if dashboard_max_speed != target_speed_factor else target_speed_factor
         wpilib.SmartDashboard.putNumber("Swerve/Target X Vector", self.x_vector_to_target)
         wpilib.SmartDashboard.putNumber("Swerve/Target Y Vector", self.y_vector_to_target)
         wpilib.SmartDashboard.putNumber("Swerve/Target X", self.target_x)
         wpilib.SmartDashboard.putNumber("Swerve/Target Y", self.target_y)
+        wpilib.SmartDashboard.putNumber("Swerve/Full Throttle Hold (s)", self._full_throttle_hold_seconds)
+        wpilib.SmartDashboard.putNumber("Swerve/Swerve Max Speed Factor", self._max_speed_factor)
 
         self._max_speed = self._max_speed_factor * TunerConstants.speed_at_12_volts
 
@@ -113,17 +143,18 @@ class SS_SwerveDrive(commands2.Subsystem):
     def drive_mode_field_centered(self) -> None:
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
-                self._drive_field_centered
-                    .with_velocity_x(-self._joystick.getLeftY() * abs(self._joystick.getLeftY()) * self._max_speed)
-                    .with_velocity_y(-self._joystick.getLeftX() * abs(self._joystick.getLeftX()) * self._max_speed)
-                    .with_rotational_rate(-self._joystick.getRightX() * abs(self._joystick.getRightX()) * self._max_angular_rate)) ))
+                self._drive_facing_direction
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
+                    .with_target_direction(self._heading_from_right_stick())
+                    .with_heading_pid(7, 0, 0)) ))
 
     def drive_mode_padlocked(self) -> None:
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_facing_direction
-                    .with_velocity_x(-self._joystick.getLeftY() * abs(self._joystick.getLeftY()) * self._max_speed)
-                    .with_velocity_y(-self._joystick.getLeftX() * abs(self._joystick.getLeftX()) * self._max_speed)
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
                     .with_target_direction(Rotation2d(self.x_vector_to_target, self.y_vector_to_target)) # Desired Heading (e.g., (0,1) = 90 deg)
                     .with_heading_pid(20, 0, 0) ))  ) # PID for heading control
     
@@ -131,9 +162,9 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_robot_centered
-                    .with_velocity_x(-self._joystick.getLeftY() * abs(self._joystick.getLeftY()) * self._max_speed)
-                    .with_velocity_y(-self._joystick.getLeftX() * abs(self._joystick.getLeftX()) * self._max_speed)
-                    .with_rotational_rate(-self._joystick.getRightX() * abs(self._joystick.getRightX()) * self._max_angular_rate)) ))
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
+                    .with_rotational_rate(-self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter) * self._max_angular_rate)) ))
 
     # -------------------------
     # Drive requests for automated movement
@@ -254,3 +285,16 @@ class SS_SwerveDrive(commands2.Subsystem):
         self._padlock_target_chooser.addOption("Red Top Zone", (12.6, 6.0)) # Red alliance target
         self._padlock_target_chooser.addOption("Red Bottom Zone", (12.6, 2.0)) # Red alliance target
         wpilib.SmartDashboard.putData("Swerve/Padlock Target Chooser", self._padlock_target_chooser)
+
+    def _smoothed_axis(self, raw_axis: float, limiter: SlewRateLimiter, deadband: float = 0.08) -> float:
+        axis = applyDeadband(raw_axis, deadband)
+        axis = axis * abs(axis)
+        return limiter.calculate(axis)
+
+    def _heading_from_right_stick(self) -> Rotation2d:
+        right_x = self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter)
+        right_y = self._smoothed_axis(self._joystick.getRightY(), self._right_y_limiter)
+        right_mag = (right_x * right_x + right_y * right_y) ** 0.5
+        if right_mag > 0.20:
+            self._last_heading = Rotation2d(-right_y, -right_x)
+        return self._last_heading
