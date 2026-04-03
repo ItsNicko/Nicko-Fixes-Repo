@@ -15,13 +15,13 @@
 
 # Dependencies:
 
-* pip install robotpy
-* pip install robotpy-commands-v2
-* pip install phoenix6
-* pip install pynetworktables
-* pip install robotpy-pathplannerlib
-* pip install robotpy-rev
-* pip install photonlibpy
+pip install robotpy
+pip install robotpy-commands-v2
+pip install phoenix6
+pip install pynetworktables
+pip install robotpy-pathplannerlib
+pip install robotpy-rev
+pip install photonlibpy
 * MrK had to use python3.14 -m pip install ... sometimes
 
 # Python Commands for RoboRIO2
