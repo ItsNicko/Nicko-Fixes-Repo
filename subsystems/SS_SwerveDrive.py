@@ -98,8 +98,7 @@ class SS_SwerveDrive(commands2.Subsystem):
             self._boost_speed_factor,
             self._base_speed_factor + (self._full_throttle_hold_seconds * self._full_throttle_ramp_rate),
         )
-        dashboard_max_speed = wpilib.SmartDashboard.getNumber("Swerve/Swerve Max Speed Factor", target_speed_factor)
-        self._max_speed_factor = max(min(dashboard_max_speed, 1.0), 0.0) if dashboard_max_speed != target_speed_factor else target_speed_factor
+        self._max_speed_factor = max(min(target_speed_factor, 1.0), 0.0)
         wpilib.SmartDashboard.putNumber("Swerve/Target X Vector", self.x_vector_to_target)
         wpilib.SmartDashboard.putNumber("Swerve/Target Y Vector", self.y_vector_to_target)
         wpilib.SmartDashboard.putNumber("Swerve/Target X", self.target_x)
