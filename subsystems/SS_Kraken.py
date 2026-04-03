@@ -142,12 +142,12 @@ class SS_Kraken(commands2.Subsystem):
 
     def run_voltage_percent_forward(self, setpoint:float = None) -> None:
         if setpoint is None:
-            setpoint = self.velocity_setpoint
+            setpoint = self.percent_power_setpoint
         self.motor.set(setpoint)
 
     def run_voltage_percent_reverse(self, setpoint:float = None) -> None:
         if setpoint is None:
-            setpoint = self.velocity_setpoint
+            setpoint = self.percent_power_setpoint
         self.motor.set(-setpoint)
 
     def set_position(self, target_rotations: float = None) -> None:
@@ -191,4 +191,3 @@ class SS_Kraken(commands2.Subsystem):
                 
         spin_up_and_wait_command = SpinUpAndWait_CommDef(self)
         return spin_up_and_wait_command
-
