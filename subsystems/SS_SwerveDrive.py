@@ -143,8 +143,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_facing_direction
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
                     .with_target_direction(self._heading_from_right_stick())
                     .with_heading_pid(7, 0, 0)) ))
 
@@ -152,8 +152,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_facing_direction
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
                     .with_target_direction(Rotation2d(self.x_vector_to_target, self.y_vector_to_target)) # Desired Heading (e.g., (0,1) = 90 deg)
                     .with_heading_pid(20, 0, 0) ))  ) # PID for heading control
     
@@ -161,8 +161,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_robot_centered
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter) * self._max_speed)
+                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
+                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
                     .with_rotational_rate(-self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter) * self._max_angular_rate)) ))
 
     # -------------------------
@@ -285,9 +285,10 @@ class SS_SwerveDrive(commands2.Subsystem):
         self._padlock_target_chooser.addOption("Red Bottom Zone", (12.6, 2.0)) # Red alliance target
         wpilib.SmartDashboard.putData("Swerve/Padlock Target Chooser", self._padlock_target_chooser)
 
-    def _smoothed_axis(self, raw_axis: float, limiter: SlewRateLimiter, deadband: float = 0.08) -> float:
+    def _smoothed_axis(self, raw_axis: float, limiter: SlewRateLimiter, deadband: float = 0.08, square_input: bool = True) -> float:
         axis = applyDeadband(raw_axis, deadband)
-        axis = axis * abs(axis)
+        if square_input:
+            axis = axis * abs(axis)
         return limiter.calculate(axis)
 
     def _heading_from_right_stick(self) -> Rotation2d:
