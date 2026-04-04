@@ -9,10 +9,13 @@ from subsystems.SS_CANdleLight import SS_CANdleLight
 
 def SEQ_shoot(shooter: SS_Kraken, feeder: SS_Kraken):
     return commands2.SequentialCommandGroup(
-        shooter.spin_up_and_wait_command(),
-        cmd.runOnce(shooter.run_velocity_at_setpoint),  # Ensure shooter keeps spinning at setpoint
-        cmd.startEnd(feeder.run_velocity_at_setpoint, feeder.stop_motor, feeder).withTimeout(3.0),
+        cmd.runOnce(shooter.spin_up_and_wait_command),
+        cmd.run(lambda: shooter.run_velocity_at_setpoint).deadlineWith(  # Ensure shooter keeps spinning at setpoint
+            cmd.run(lambda: feeder.run_velocity_at_setpoint).withTimeout(3.0)
+        ),
         cmd.runOnce(shooter.stop_motor),
+        cmd.runOnce(feeder.stop_motor),
+
     )
 
 def SEQ_extend_intake(extender: SS_Kraken):

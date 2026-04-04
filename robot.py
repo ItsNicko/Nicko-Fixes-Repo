@@ -26,7 +26,7 @@ class RobotContainer:
         self.ss_candle_light_left = None or SS_CANdleLight(2, self.canbus, "Left")
         self.ss_candle_light_right = None or SS_CANdleLight(5, self.canbus, "Right")
         self.ss_swerve_drive = None or SS_SwerveDrive(self.gamepad)
-        self.ss_camera_pose = None# or SS_CameraPose(self.ss_swerve_drive)
+        self.ss_camera_pose = None or SS_CameraPose(self.ss_swerve_drive)
 
         self._build_complex_commands_and_autochooser()
         self._setup_simulated_mechanism2d()
