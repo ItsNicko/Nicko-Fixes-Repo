@@ -210,6 +210,19 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drive_mode_field_centered()
         wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", False)
 
+    def hold_padlock_goal_command(self) -> commands2.Command:
+        """Hold-to-padlock command for the B button.
+
+        On command start, engage goal padlock targeting.
+        When the hold ends/interupts, clear forced targeting and return to
+        normal field-centered driving.
+        """
+        return commands2.cmd.startEnd(
+            self.target_goal,
+            self.release_padlock_goal,
+            self,
+        )
+
     def toggle_padlock_goal(self) -> None:
         """Toggle padlock-targeting to the goal on/off.
 
