@@ -21,7 +21,7 @@ class SS_SwerveDrive(commands2.Subsystem):
     def __init__(self, joystick) -> None:
         self._joystick = joystick
         self._max_angular_rate = rotationsToRadians(0.75)
-        self._base_speed_factor = 0.70
+        self._base_speed_factor = 1.00
         self._boost_speed_factor = 1.00
         self._max_speed_factor = self._base_speed_factor
         self._full_throttle_hold_seconds = 0.0
@@ -34,6 +34,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self._right_y_limiter = SlewRateLimiter(6.0)
         self._last_heading = Rotation2d()
         self._max_speed = self._max_speed_factor * TunerConstants.speed_at_12_volts
+        self._drive_deadband = 0.03 * TunerConstants.speed_at_12_volts
+        self._rot_deadband = 0.03 * self._max_angular_rate
         wpilib.SmartDashboard.putNumber("Swerve/Swerve Max Speed Factor", self._max_speed_factor)
         self._pov_speed = 0.2
         self._latest_pose = Pose2d()
@@ -57,12 +59,12 @@ class SS_SwerveDrive(commands2.Subsystem):
         # Initialize swerve drive configurations
         self._drive_field_centered = (
             swerve.requests.FieldCentric()
-            .with_deadband(self._max_speed * 0.1)
-            .with_rotational_deadband(self._max_angular_rate * 0.1)
+            .with_deadband(self._drive_deadband)
+            .with_rotational_deadband(self._rot_deadband)
             .with_drive_request_type(swerve.SwerveModule.DriveRequestType.OPEN_LOOP_VOLTAGE) )
         self._drive_facing_direction = (
             swerve.requests.FieldCentricFacingAngle()
-            .with_deadband(self._max_speed * 0.1)
+            .with_deadband(self._drive_deadband)
             .with_drive_request_type(swerve.SwerveModule.DriveRequestType.OPEN_LOOP_VOLTAGE) )
         self._drive_robot_centered = (
             swerve.requests.RobotCentric()
