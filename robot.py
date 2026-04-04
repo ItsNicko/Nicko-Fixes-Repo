@@ -52,6 +52,9 @@ class RobotContainer:
             self.ss_swerve_drive.drive_mode_field_centered()
             self.gamepad.a().onTrue(cmd.runOnce(self.ss_swerve_drive.drive_mode_padlocked))
             self.gamepad.a().onFalse(cmd.runOnce(self.ss_swerve_drive.drive_mode_field_centered))
+            # Hold B to lock to target; release B to return to field-centered
+            self.gamepad.b().onTrue(cmd.runOnce(self.ss_swerve_drive.target_goal))
+            self.gamepad.b().onFalse(cmd.runOnce(self.ss_swerve_drive.drive_mode_field_centered))
             # self.gamepad.a().and_(self.gamepad.back()).onFalse(cmd.runOnce(self.ss_swerve_drive.change_target))
             # self.gamepad.pov(45).whileTrue(self.ss_swerve_drive.robot_pov_drive_request_command(1, 0))
             # self.gamepad.pov(135).whileTrue(cmd.startEnd(lambda: self.ss_swerve_drive.robot_pov_drive_request_command(-1, 0), lambda: self.ss_swerve_drive.robot_pov_drive_request_command(0, 0)) )

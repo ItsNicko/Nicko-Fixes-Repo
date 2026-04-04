@@ -5,7 +5,7 @@ from wpimath import applyDeadband
 from wpimath.filter import SlewRateLimiter
 from wpimath import applyDeadband
 from wpimath.filter import SlewRateLimiter
-from phoenix6 import swerve, SignalLogger
+from phoenix6 import swerve
 from wpimath.kinematics import ChassisSpeeds
 from telemetry import Telemetry
 from generated.tuner_constants_2026_GF import TunerConstants
@@ -13,7 +13,6 @@ from generated.tuner_constants_2026_GF import TunerConstants
 from wpilib import DriverStation, Timer, SmartDashboard
 from wpimath.geometry import Pose2d, Rotation2d
 from commands2.button import Trigger
-from commands2.sysid import SysIdRoutine
 from pathplannerlib.auto import AutoBuilder
 from pathplannerlib.config import RobotConfig, PIDConstants
 from pathplannerlib.controller import PPHolonomicDriveController
@@ -52,8 +51,10 @@ class SS_SwerveDrive(commands2.Subsystem):
 
         self.field = wpilib.Field2d()
         wpilib.SmartDashboard.putData("Field", self.field)
+        # Track whether padlock target mode is currently engaged (toggled by B)
+        self._padlock_engaged = False
 
-        self.PIDF_sysID_tuning_bindings()
+    # SysID / SignalLogger bindings removed to simplify controller mappings.
         idle = swerve.requests.Idle() # Determine behavior when no other commands are running. 
         Trigger(DriverStation.isDisabled).whileTrue( # This is important to prevent unexpected robot movement when commands end.
             self.drivetrain.apply_request(lambda: idle).ignoringDisable(True) )
@@ -167,6 +168,54 @@ class SS_SwerveDrive(commands2.Subsystem):
                     .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
                     .with_target_direction(Rotation2d(self.x_vector_to_target, self.y_vector_to_target)) # Desired Heading (e.g., (0,1) = 90 deg)
                     .with_heading_pid(20, 0, 0) ))  ) # PID for heading control
+
+    def target_goal(self) -> None:
+        """Set the padlock target to the scoring goal (based on alliance) and
+        switch to padlocked drive mode.
+
+        This updates the internal target coordinates immediately so the next
+        drive command will aim at the goal. It doesn't require a valid pose
+        (uses the last-known pose), and safely falls back if pose isn't set.
+        """
+        # Choose static goal coordinates used elsewhere in this file
+        if DriverStation.getAlliance() == DriverStation.Alliance.kBlue:
+            tx, ty = (4.6, 4.0)
+        else:
+            tx, ty = (12.0, 4.0)
+
+        # Update target coordinates and vectors for immediate use
+        self.target_x = tx
+        self.target_y = ty
+        try:
+            pose = self._latest_pose
+            self.x_vector_to_target = self.target_x - pose.translation().X()
+            self.y_vector_to_target = self.target_y - pose.translation().Y()
+        except Exception:
+            # Defensive fallback if pose or translation unavailable
+            self.x_vector_to_target = tx
+            self.y_vector_to_target = ty
+
+        self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2) ** 0.5
+
+        # Ensure drive mode is padlocked so the robot will head toward the goal
+        self.drive_mode_padlocked()
+        wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", True)
+
+    def toggle_padlock_goal(self) -> None:
+        """Toggle padlock-targeting to the goal on/off.
+
+        When toggled on, set the target to the goal and engage padlocked drive.
+        When toggled off, return to field-centered driving.
+        This method is safe to call even if pose is not yet available.
+        """
+        self._padlock_engaged = not getattr(self, "_padlock_engaged", False)
+        if self._padlock_engaged:
+            # Engage: set the target and switch to padlocked mode
+            self.target_goal()
+        else:
+            # Disengage: return to regular field-centered driving
+            self.drive_mode_field_centered()
+            wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", False)
     
     def drive_mode_robot_centered(self) -> None:
         self.drivetrain.setDefaultCommand(
@@ -210,33 +259,6 @@ class SS_SwerveDrive(commands2.Subsystem):
 
     def brake(self) -> None:
         self.drivetrain.apply_request(lambda: swerve.requests.SwerveDriveBrake())
-
-    # -------------------------
-    # Utility functions
-    # -------------------------
-    def PIDF_sysID_tuning_bindings(self) -> None:
-        # Previously these bindings required pressing the Start button as a
-        # modifier (e.g. Start + LeftBumper). That makes the face buttons and
-        # bumpers appear to not work if you press them by themselves. Bind the
-        # bumpers and face buttons directly so pressing them alone runs the
-        # intended actions.
-        # Start/Stop SignalLogger (bumpers alone)
-        self._joystick.leftBumper().onTrue(SignalLogger.start)
-        self._joystick.rightBumper().onTrue(SignalLogger.stop)
-
-        # SysID routines: use face buttons directly (no Start modifier required)
-        self._joystick.a().whileTrue(
-            self.drivetrain.sys_id_dynamic(SysIdRoutine.Direction.kForward)
-        )
-        self._joystick.b().whileTrue(
-            self.drivetrain.sys_id_dynamic(SysIdRoutine.Direction.kReverse)
-        )
-        self._joystick.y().whileTrue(
-            self.drivetrain.sys_id_quasistatic(SysIdRoutine.Direction.kForward)
-        )
-        self._joystick.x().whileTrue(
-            self.drivetrain.sys_id_quasistatic(SysIdRoutine.Direction.kReverse)
-        )
 
     def reset_field_oriented_perspective(self) -> None:
         # Resets the rotation of the robot pose to 0 from the ForwardPerspectiveValue.OPERATOR_PERSPECTIVE perspective. 
