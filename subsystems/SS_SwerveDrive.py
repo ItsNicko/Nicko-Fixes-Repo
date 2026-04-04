@@ -147,6 +147,10 @@ class SS_SwerveDrive(commands2.Subsystem):
     # Drive mode switching for joystick/gamepad control
     # -------------------------
     def drive_mode_field_centered(self) -> None:
+        # Field-centric translation; use the right-stick vector (axes 2 & 3)
+        # to set a target heading. _heading_from_right_stick() preserves the
+        # last heading when the stick is near-center, so the robot won't
+        # constantly re-orient when the driver releases the stick.
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_facing_direction
@@ -170,7 +174,11 @@ class SS_SwerveDrive(commands2.Subsystem):
                 self._drive_robot_centered
                     .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
                     .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
-                    .with_rotational_rate(-self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter) * self._max_angular_rate)) ))
+                    # Use raw axis indices 2 and 3 for the right stick so the
+                    # controller mapping matches what the driver expects (axes
+                    # 2/3 instead of 4/5). _joystick_axis will fallback to
+                    # getRightX()/getRightY() if getRawAxis is not available.
+                    .with_rotational_rate(-self._smoothed_axis(self._joystick_axis(2), self._right_x_limiter) * self._max_angular_rate)) ))
 
     # -------------------------
     # Drive requests for automated movement
@@ -207,19 +215,26 @@ class SS_SwerveDrive(commands2.Subsystem):
     # Utility functions
     # -------------------------
     def PIDF_sysID_tuning_bindings(self) -> None:
-        (self._joystick.start() & self._joystick.leftBumper()).onTrue(SignalLogger.start)
-        (self._joystick.start() & self._joystick.rightBumper()).onTrue(SignalLogger.stop)
+        # Previously these bindings required pressing the Start button as a
+        # modifier (e.g. Start + LeftBumper). That makes the face buttons and
+        # bumpers appear to not work if you press them by themselves. Bind the
+        # bumpers and face buttons directly so pressing them alone runs the
+        # intended actions.
+        # Start/Stop SignalLogger (bumpers alone)
+        self._joystick.leftBumper().onTrue(SignalLogger.start)
+        self._joystick.rightBumper().onTrue(SignalLogger.stop)
 
-        (self._joystick.start() & self._joystick.a()).whileTrue(
+        # SysID routines: use face buttons directly (no Start modifier required)
+        self._joystick.a().whileTrue(
             self.drivetrain.sys_id_dynamic(SysIdRoutine.Direction.kForward)
         )
-        (self._joystick.start() & self._joystick.b()).whileTrue(
+        self._joystick.b().whileTrue(
             self.drivetrain.sys_id_dynamic(SysIdRoutine.Direction.kReverse)
         )
-        (self._joystick.start() & self._joystick.y()).whileTrue(
+        self._joystick.y().whileTrue(
             self.drivetrain.sys_id_quasistatic(SysIdRoutine.Direction.kForward)
         )
-        (self._joystick.start() & self._joystick.x()).whileTrue(
+        self._joystick.x().whileTrue(
             self.drivetrain.sys_id_quasistatic(SysIdRoutine.Direction.kReverse)
         )
 
@@ -299,9 +314,39 @@ class SS_SwerveDrive(commands2.Subsystem):
         return limiter.calculate(axis)
 
     def _heading_from_right_stick(self) -> Rotation2d:
-        right_x = self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter)
-        right_y = self._smoothed_axis(self._joystick.getRightY(), self._right_y_limiter)
+        # Read the controller raw axes 2 and 3 for right-stick X/Y. Some
+        # gamepads (or custom mappings) put the right-stick on axes 2/3 rather
+        # than 4/5; this ensures we use the driver's preferred mapping. Use
+        # _joystick_axis which gracefully falls back if getRawAxis isn't
+        # available.
+        right_x = self._smoothed_axis(self._joystick_axis(2), self._right_x_limiter)
+        right_y = self._smoothed_axis(self._joystick_axis(3), self._right_y_limiter)
         right_mag = (right_x * right_x + right_y * right_y) ** 0.5
         if right_mag > 0.20:
             self._last_heading = Rotation2d(-right_y, -right_x)
         return self._last_heading
+
+    def _joystick_axis(self, axis_index: int) -> float:
+        """Return the raw axis value for the given index.
+
+        Tries CommandGenericHID.getRawAxis first (used by CommandXboxController
+        and friends). If that isn't available, falls back to getRightX/getRightY
+        for backwards compatibility when axis_index matches those semantics.
+        """
+        try:
+            # CommandGenericHID exposes getRawAxis(axis)
+            return self._joystick.getRawAxis(axis_index)
+        except Exception:
+            # Best-effort fallback: map common right-stick indices to helper
+            # methods if present.
+            if axis_index == 2:
+                try:
+                    return self._joystick.getRightX()
+                except Exception:
+                    return 0.0
+            if axis_index == 3:
+                try:
+                    return self._joystick.getRightY()
+                except Exception:
+                    return 0.0
+            return 0.0
