@@ -146,7 +146,7 @@ class SS_SwerveDrive(commands2.Subsystem):
 
    # Drive mode switching for joystick/gamepad control
     def drive_mode_field_centered(self):
-        self.drivetrain.sretDefaultCommand(
+        self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
             self._drive_field_centered
                 .with_velocity_x(
