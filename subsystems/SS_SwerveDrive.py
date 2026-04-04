@@ -48,6 +48,7 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.range_to_target = 0.0
         self.target_x = 0.0
         self.target_y = 0.0
+        self._forced_padlock_target = None
 
         self.field = wpilib.Field2d()
         wpilib.SmartDashboard.putData("Field", self.field)
@@ -125,6 +126,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.field.setRobotPose(self._latest_pose)
 
     def _determine_padlock_target(self, pose: Pose2d) -> tuple:
+        if self._forced_padlock_target is not None:
+            return self._forced_padlock_target
         selected_target = self._padlock_target_chooser.getSelected()
         if selected_target == (-1.0, -1.0) or selected_target is None: 
             # If "Auto Targetting" is selected, choose target based on alliance and position
@@ -182,6 +185,7 @@ class SS_SwerveDrive(commands2.Subsystem):
             tx, ty = (4.6, 4.0)
         else:
             tx, ty = (12.0, 4.0)
+        self._forced_padlock_target = (tx, ty)
 
         # Update target coordinates and vectors for immediate use
         self.target_x = tx
@@ -200,6 +204,11 @@ class SS_SwerveDrive(commands2.Subsystem):
         # Ensure drive mode is padlocked so the robot will head toward the goal
         self.drive_mode_padlocked()
         wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", True)
+
+    def release_padlock_goal(self) -> None:
+        self._forced_padlock_target = None
+        self.drive_mode_field_centered()
+        wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", False)
 
     def toggle_padlock_goal(self) -> None:
         """Toggle padlock-targeting to the goal on/off.
