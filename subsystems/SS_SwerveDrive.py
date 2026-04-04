@@ -84,9 +84,6 @@ class SS_SwerveDrive(commands2.Subsystem):
             self.target_x, self.target_y = self._determine_padlock_target(pose)
             self.x_vector_to_target = self.target_x - self._latest_pose.translation().X()
             self.y_vector_to_target = self.target_y - self._latest_pose.translation().Y()
-            if DriverStation.getAlliance() == DriverStation.Alliance.kRed:
-                self.x_vector_to_target = -self.x_vector_to_target
-                self.y_vector_to_target = -self.y_vector_to_target
             self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2)**0.5
 
         now = Timer.getFPGATimestamp()
@@ -167,8 +164,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
                 self._drive_facing_direction
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
+                    .with_velocity_x(-self._joystick.getLeftY() * abs(self._joystick.getLeftY()) * self._max_speed)
+                    .with_velocity_y(-self._joystick.getLeftX() * abs(self._joystick.getLeftX()) * self._max_speed)
                     .with_target_direction(Rotation2d(self.x_vector_to_target, self.y_vector_to_target)) # Desired Heading (e.g., (0,1) = 90 deg)
                     .with_heading_pid(20, 0, 0) ))  ) # PID for heading control
 
