@@ -144,9 +144,7 @@ class SS_SwerveDrive(commands2.Subsystem):
                     selected_target = (12.0, 2.0)
         return selected_target
 
-    # -------------------------
-    # Drive mode switching for joystick/gamepad control
-    # -------------------------
+   # Drive mode switching for joystick/gamepad control
     def drive_mode_field_centered(self):
         return self.drivetrain.apply_request(lambda: (
             self._drive_facing_direction
@@ -165,7 +163,7 @@ class SS_SwerveDrive(commands2.Subsystem):
                     ) * self._max_speed
                 )
                 .with_target_direction(
-                    # Use padlock heading if padlock is active
+                    # use padlock heading if padlock is active
                     Rotation2d(-self.x_vector_to_target, -self.y_vector_to_target)
                     if self._forced_padlock_target is not None
                     else self._heading_from_right_stick()
@@ -249,9 +247,7 @@ class SS_SwerveDrive(commands2.Subsystem):
                     # getRightX()/getRightY() if getRawAxis is not available.
                     .with_rotational_rate(-self._smoothed_axis(self._joystick_axis(2), self._right_x_limiter) * self._max_angular_rate)) )
 
-    # -------------------------
     # Drive requests for automated movement
-    # -------------------------
     def free_rotate_drive_request_command(self, vx_requested, vy_requested, rotational_rate) -> commands2.Command:
         return self.drivetrain.apply_request(lambda: (
             self._drive_field_centered
@@ -286,9 +282,7 @@ class SS_SwerveDrive(commands2.Subsystem):
         return self.drivetrain.seed_field_centric()
 
 
-    # -------------------------
     # Pathplannerlib setup and helpers
-    # -------------------------
     def _setup_pathplanner_auto_builder(self) -> None:
         AutoBuilder.configure(
             pose_supplier=self.get_pose,

@@ -49,11 +49,10 @@ class RobotContainer:
             self.gamepad.x().onTrue(SEQ_shoot(self.ss_shooter, self.ss_feeder))
 
         if self.ss_swerve_drive:
-            # Default command already set above — do NOT call drive_mode_field_centered() again
 
             # A button toggles padlock mode
-            self.gamepad.a().onTrue(cmd.runOnce(self.ss_swerve_drive.drive_mode_padlocked))
-            self.gamepad.a().onFalse(cmd.runOnce(self.ss_swerve_drive.drive_mode_field_centered))
+            #self.gamepad.a().onTrue(cmd.runOnce(self.ss_swerve_drive.drive_mode_padlocked))
+            #self.gamepad.a().onFalse(cmd.runOnce(self.ss_swerve_drive.drive_mode_field_centered))
 
             # B button hold → padlock to target
             self.gamepad.b().whileTrue(self.ss_swerve_drive.hold_padlock_goal_command())
