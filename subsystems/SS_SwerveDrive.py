@@ -21,7 +21,7 @@ from wpilib import DriverStation
 class SS_SwerveDrive(commands2.Subsystem):
     def __init__(self, joystick) -> None:
         self._joystick = joystick
-        self._max_angular_rate = rotationsToRadians(0.75)
+        self._max_angular_rate = rotationsToRadians(0.02)
         self._base_speed_factor = 1.00
         self._boost_speed_factor = 1.00
         self._max_speed_factor = self._base_speed_factor
@@ -29,10 +29,10 @@ class SS_SwerveDrive(commands2.Subsystem):
         self._full_throttle_threshold = 0.75
         self._full_throttle_ramp_rate = 1.20
         self._last_periodic_timestamp = Timer.getFPGATimestamp()
-        self._left_x_limiter = SlewRateLimiter(3.5)
-        self._left_y_limiter = SlewRateLimiter(3.5)
-        self._right_x_limiter = SlewRateLimiter(6.0)
-        self._right_y_limiter = SlewRateLimiter(6.0)
+        self._left_x_limiter = SlewRateLimiter(2.0)
+        self._left_y_limiter = SlewRateLimiter(2.0)
+        self._right_x_limiter = SlewRateLimiter(0.25)
+        self._right_y_limiter = SlewRateLimiter(1.5)
         self._last_heading = Rotation2d()
         self._max_speed = self._max_speed_factor * TunerConstants.speed_at_12_volts
         self._drive_deadband = 0.03 * TunerConstants.speed_at_12_volts
@@ -48,6 +48,7 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.range_to_target = 0.0
         self.target_x = 0.0
         self.target_y = 0.0
+        self._forced_padlock_target = None
 
         self.field = wpilib.Field2d()
         wpilib.SmartDashboard.putData("Field", self.field)
@@ -83,9 +84,6 @@ class SS_SwerveDrive(commands2.Subsystem):
             self.target_x, self.target_y = self._determine_padlock_target(pose)
             self.x_vector_to_target = self.target_x - self._latest_pose.translation().X()
             self.y_vector_to_target = self.target_y - self._latest_pose.translation().Y()
-            if DriverStation.getAlliance() == DriverStation.Alliance.kRed:
-                self.x_vector_to_target = -self.x_vector_to_target
-                self.y_vector_to_target = -self.y_vector_to_target
             self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2)**0.5
 
         now = Timer.getFPGATimestamp()
@@ -125,6 +123,8 @@ class SS_SwerveDrive(commands2.Subsystem):
         self.field.setRobotPose(self._latest_pose)
 
     def _determine_padlock_target(self, pose: Pose2d) -> tuple:
+        if self._forced_padlock_target is not None:
+            return self._forced_padlock_target
         selected_target = self._padlock_target_chooser.getSelected()
         if selected_target == (-1.0, -1.0) or selected_target is None: 
             # If "Auto Targetting" is selected, choose target based on alliance and position
@@ -144,62 +144,84 @@ class SS_SwerveDrive(commands2.Subsystem):
                     selected_target = (12.0, 2.0)
         return selected_target
 
-    # -------------------------
-    # Drive mode switching for joystick/gamepad control
-    # -------------------------
-    def drive_mode_field_centered(self) -> None:
-        # Field-centric translation; use the right-stick vector (axes 2 & 3)
-        # to set a target heading. _heading_from_right_stick() preserves the
-        # last heading when the stick is near-center, so the robot won't
-        # constantly re-orient when the driver releases the stick.
+   # Drive mode switching for joystick/gamepad control
+    def drive_mode_field_centered(self):
         self.drivetrain.setDefaultCommand(
             self.drivetrain.apply_request(lambda: (
-                self._drive_facing_direction
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
-                    .with_target_direction(self._heading_from_right_stick())
-                    .with_heading_pid(7, 0, 0)) ))
+            self._drive_field_centered
+                .with_velocity_x(
+                    -self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_velocity_y(
+                    -self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_target_direction(
+                    Rotation2d(-self.x_vector_to_target, -self.y_vector_to_target)
+                    if self._forced_padlock_target is not None
+                    else self._heading_from_right_stick()
+                )
+                .with_heading_pid(7, 0, 0)
+        )))
+
 
     def drive_mode_padlocked(self) -> None:
-        self.drivetrain.setDefaultCommand(
-            self.drivetrain.apply_request(lambda: (
-                self._drive_facing_direction
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
-                    .with_target_direction(Rotation2d(self.x_vector_to_target, self.y_vector_to_target)) # Desired Heading (e.g., (0,1) = 90 deg)
-                    .with_heading_pid(20, 0, 0) ))  ) # PID for heading control
+        return self.drivetrain.apply_request(lambda: (
+            self._drive_facing_direction
+                .with_velocity_x(
+                    -self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_velocity_y(
+                    -self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_target_direction(
+                    Rotation2d(self.x_vector_to_target, self.y_vector_to_target)
+                )
+                .with_heading_pid(12, 0, 0)
+        ))
+
 
     def target_goal(self) -> None:
-        """Set the padlock target to the scoring goal (based on alliance) and
-        switch to padlocked drive mode.
-
-        This updates the internal target coordinates immediately so the next
-        drive command will aim at the goal. It doesn't require a valid pose
-        (uses the last-known pose), and safely falls back if pose isn't set.
-        """
-        # Choose static goal coordinates used elsewhere in this file
         if DriverStation.getAlliance() == DriverStation.Alliance.kBlue:
             tx, ty = (4.6, 4.0)
         else:
             tx, ty = (12.0, 4.0)
 
-        # Update target coordinates and vectors for immediate use
+        self._forced_padlock_target = (tx, ty)
         self.target_x = tx
         self.target_y = ty
+
         try:
             pose = self._latest_pose
-            self.x_vector_to_target = self.target_x - pose.translation().X()
-            self.y_vector_to_target = self.target_y - pose.translation().Y()
-        except Exception:
-            # Defensive fallback if pose or translation unavailable
+            self.x_vector_to_target = tx - pose.translation().X()
+            self.y_vector_to_target = ty - pose.translation().Y()
+        except:
             self.x_vector_to_target = tx
             self.y_vector_to_target = ty
 
-        self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2) ** 0.5
-
-        # Ensure drive mode is padlocked so the robot will head toward the goal
-        self.drive_mode_padlocked()
+        self.range_to_target = (self.x_vector_to_target**2 + self.y_vector_to_target**2)**0.5
         wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", True)
+
+
+    def release_padlock_goal(self) -> None:
+        self._forced_padlock_target = None
+        wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", False)
+
+    def hold_padlock_goal_command(self) -> commands2.Command:
+        """Hold-to-padlock command for the B button.
+
+        On command start, engage goal padlock targeting.
+        When the hold ends/interupts, clear forced targeting and return to
+        normal field-centered driving.
+        """
+        return commands2.cmd.startEnd(
+            self.target_goal,
+            self.release_padlock_goal,
+            self,
+        )
 
     def toggle_padlock_goal(self) -> None:
         """Toggle padlock-targeting to the goal on/off.
@@ -218,20 +240,24 @@ class SS_SwerveDrive(commands2.Subsystem):
             wpilib.SmartDashboard.putBoolean("Swerve/Padlock Engaged", False)
     
     def drive_mode_robot_centered(self) -> None:
-        self.drivetrain.setDefaultCommand(
-            self.drivetrain.apply_request(lambda: (
-                self._drive_robot_centered
-                    .with_velocity_x(-self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=False) * self._max_speed)
-                    .with_velocity_y(-self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=False) * self._max_speed)
-                    # Use raw axis indices 2 and 3 for the right stick so the
-                    # controller mapping matches what the driver expects (axes
-                    # 2/3 instead of 4/5). _joystick_axis will fallback to
-                    # getRightX()/getRightY() if getRawAxis is not available.
-                    .with_rotational_rate(-self._smoothed_axis(self._joystick_axis(2), self._right_x_limiter) * self._max_angular_rate)) ))
+        return self.drivetrain.apply_request(lambda: (
+            self._drive_robot_centered
+                .with_velocity_x(
+                    -self._smoothed_axis(self._joystick.getLeftY(), self._left_y_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_velocity_y(
+                    -self._smoothed_axis(self._joystick.getLeftX(), self._left_x_limiter, square_input=True)
+                    * self._max_speed
+                )
+                .with_rotational_rate(
+                    -self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter, square_input=True)
+                    * self._max_angular_rate
+                )
+        ))
 
-    # -------------------------
+
     # Drive requests for automated movement
-    # -------------------------
     def free_rotate_drive_request_command(self, vx_requested, vy_requested, rotational_rate) -> commands2.Command:
         return self.drivetrain.apply_request(lambda: (
             self._drive_field_centered
@@ -266,9 +292,7 @@ class SS_SwerveDrive(commands2.Subsystem):
         return self.drivetrain.seed_field_centric()
 
 
-    # -------------------------
     # Pathplannerlib setup and helpers
-    # -------------------------
     def _setup_pathplanner_auto_builder(self) -> None:
         AutoBuilder.configure(
             pose_supplier=self.get_pose,
@@ -329,24 +353,28 @@ class SS_SwerveDrive(commands2.Subsystem):
         self._padlock_target_chooser.addOption("Red Bottom Zone", (12.6, 2.0)) # Red alliance target
         wpilib.SmartDashboard.putData("Swerve/Padlock Target Chooser", self._padlock_target_chooser)
 
-    def _smoothed_axis(self, raw_axis: float, limiter: SlewRateLimiter, deadband: float = 0.08, square_input: bool = True) -> float:
+    def _smoothed_axis(self, raw_axis: float, limiter: SlewRateLimiter, 
+                    deadband: float = 0.12, square_input: bool = False) -> float:
         axis = applyDeadband(raw_axis, deadband)
         if square_input:
             axis = axis * abs(axis)
         return limiter.calculate(axis)
 
+
     def _heading_from_right_stick(self) -> Rotation2d:
-        # Read the controller raw axes 2 and 3 for right-stick X/Y. Some
-        # gamepads (or custom mappings) put the right-stick on axes 2/3 rather
-        # than 4/5; this ensures we use the driver's preferred mapping. Use
-        # _joystick_axis which gracefully falls back if getRawAxis isn't
-        # available.
-        right_x = self._smoothed_axis(self._joystick_axis(2), self._right_x_limiter)
-        right_y = self._smoothed_axis(self._joystick_axis(3), self._right_y_limiter)
-        right_mag = (right_x * right_x + right_y * right_y) ** 0.5
-        if right_mag > 0.20:
-            self._last_heading = Rotation2d(-right_y, -right_x)
+    # Smooth but do NOT square input for rotation
+        rx = self._smoothed_axis(self._joystick.getRightX(), self._right_x_limiter, square_input=True)
+        ry = self._smoothed_axis(self._joystick.getRightY(), self._right_y_limiter, square_input=True)
+
+        mag = (rx*rx + ry*ry)**0.5
+
+        # Only update heading when stick is intentionally moved
+        if mag > 0.20:
+            # CONSISTENT SIGN CONVENTION
+            self._last_heading = Rotation2d(rx, ry)
+
         return self._last_heading
+
 
     def _joystick_axis(self, axis_index: int) -> float:
         """Return the raw axis value for the given index.
